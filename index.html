@@ -92,7 +92,7 @@ body {
 		</style>
 		<link id="-gd-engine-icon" rel="icon" type="image/png" href="index.icon.png" />
 <link rel="apple-touch-icon" href="index.apple-touch-icon.png"/>
-
+<script>/* crash report: remember the game's WebAssembly memory so perf.gd can read its size */(function(){var M=WebAssembly.Memory;window.__erMems=[];WebAssembly.Memory=function(d){var m=new M(d);window.__erMems.push(m);return m;};WebAssembly.Memory.prototype=M.prototype;function keep(r){try{var e=(r.instance||r).exports;for(var k in e){if(e[k] instanceof M&&window.__erMems.indexOf(e[k])<0)window.__erMems.push(e[k]);}}catch(x){}return r;}var I=WebAssembly.instantiate;WebAssembly.instantiate=function(){return I.apply(this,arguments).then(keep);};if(WebAssembly.instantiateStreaming){var S=WebAssembly.instantiateStreaming;WebAssembly.instantiateStreaming=function(){return S.apply(this,arguments).then(keep);};}})();</script>
 	</head>
 	<body>
 		<canvas id="canvas">
@@ -111,7 +111,7 @@ body {
 
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":2160100,"index.wasm":1508095},"focusCanvas":true,"gdextensionLibs":["thorn_runtime.web.template_release.wasm32.nothreads.wasm"],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":2162276,"index.wasm":1508095},"focusCanvas":true,"gdextensionLibs":["thorn_runtime.web.template_release.wasm32.nothreads.wasm"],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
