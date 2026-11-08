@@ -27,7 +27,7 @@ function roster(room) {
 const REPORTS_REPO = process.env.REPORTS_REPO || "roodeexx/elemental-rivals-reports";
 const REPORTS_DIR = process.env.REPORTS_DIR || "";
 const MAX_REPORT = 600 * 1024;   // bytes; a full report is well under this
-const PER_HOUR = 6;              // reports a sender may send in an hour (stops floods)
+const PER_HOUR = 30;             // reports filed per hour per internet connection (friends at one home share one); stops floods
 const sent = new Map();          // sender -> [times], in memory only, cleared hourly
 setInterval(() => sent.clear(), 3600 * 1000).unref();
 
@@ -67,10 +67,9 @@ function handleReport(req, res) {
     let report;
     try { report = JSON.parse(text); } catch { res.writeHead(400, CORS); return res.end("not json"); }
     if (!report || typeof report !== "object" || !report.how_it_ended) { res.writeHead(400, CORS); return res.end("not a report"); }
-    times.push(Date.now());
-    sent.set(who, times);
     try {
       const ok = await storeReport(JSON.stringify(report, null, 1));
+      if (ok) { times.push(Date.now()); sent.set(who, times); }  // only filed reports count toward the limit
       res.writeHead(ok ? 201 : 503, CORS);
       res.end(ok ? "saved" : "reports are not set up on this relay");
     } catch {
