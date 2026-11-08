@@ -7,3 +7,10 @@ services:
     buildCommand: npm ci
     startCommand: node relay.mjs
     healthCheckPath: /
+    envVars:
+      # crash reports go to this PRIVATE repo; GITHUB_TOKEN is entered by the owner in
+      # Render's dashboard (a key that can only write that repo) - never stored here
+      - key: REPORTS_REPO
+        value: roodeexx/elemental-rivals-reports
+      - key: GITHUB_TOKEN
+        sync: false
