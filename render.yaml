@@ -1,6 +1,7 @@
 services:
   - type: web
-    name: elemental-rivals-relay
+    name: elemental-rivals
+    region: frankfurt  # close to the players (Oregon gave ~200 ms ping from Europe)
     runtime: node
     plan: free
     rootDir: relay
