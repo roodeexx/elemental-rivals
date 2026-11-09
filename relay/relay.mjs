@@ -110,6 +110,13 @@ const CORS = { "Content-Type": "text/plain", "Access-Control-Allow-Origin": "*" 
 // A plain visit answers too: Render's health check, and the game page waking a sleeping server.
 const http = createServer((req, res) => {
   if (req.method === "POST" && req.url === "/report") return handleReport(req, res);
+  if (req.url === "/rooms") {
+    // the lobby's "live now" line: how many public games run and how many play in them (counts only)
+    const live = [...rooms.values()].filter((r) => r.public);
+    res.writeHead(200, { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" });
+    return res.end(JSON.stringify({ games: live.length, players: live.reduce((n, r) => n + r.clients.size, 0),
+      open: live.filter((r) => r.clients.size < MAX_PLAYERS).length }));
+  }
   res.writeHead(200, CORS);
   res.end("Elemental Rivals relay is running.");
 }).listen(PORT);
