@@ -27,8 +27,8 @@ function create(ws, isPublic) {
   } while (rooms.has(code));
   ws.room = code;
   ws.id = 1;
-  rooms.set(code, { clients: new Map([[1, ws]]), next: 2, started: false, public: isPublic });
-  send(ws, { t: "room", code, id: 1, quick: isPublic });
+  rooms.set(code, { clients: new Map([[1, ws]]), next: 2, started: false, public: isPublic, host: 1 });
+  send(ws, { t: "room", code, id: 1, quick: isPublic, host: 1 });
   send(ws, { t: "roster", ids: [1] });
 }
 // Joining a running match is allowed (live sessions): "started" tells the newcomer to go
@@ -37,7 +37,7 @@ function join(ws, code, room) {
   ws.room = code;
   ws.id = room.next++;
   room.clients.set(ws.id, ws);
-  send(ws, { t: "room", code, id: ws.id, started: room.started });
+  send(ws, { t: "room", code, id: ws.id, started: room.started, host: room.host });
   bcast(room, roster(room));
 }
 
@@ -135,7 +135,7 @@ new WebSocketServer({ server: http }).on("connection", (ws) => {
       if (!room) return;
       // shortcut: detects match start by substring, not JSON parse; fine while only the host sends "begin"
       if (raw.includes('"begin"')) room.started = true;
-      if (ws.id === 1 && raw.includes('"meta"')) {  // the host's bot count, for the lobby's "live games" line
+      if (ws.id === room.host && raw.includes('"meta"')) {  // the host's bot count, for the lobby's "live games" line
         try { const m = JSON.parse(raw); if (m.t === "meta") room.bots = Math.max(0, Math.min(8, m.bots | 0)); } catch {}
       }
       bcast(room, `{"f":${ws.id},"m":${raw}}`, ws);
@@ -167,13 +167,19 @@ new WebSocketServer({ server: http }).on("connection", (ws) => {
   ws.on("close", () => {
     const room = rooms.get(ws.room);
     if (!room) return;
-    if (ws.id === 1) {
+    // the room lives on while anyone is in it (the user's ask): a host who leaves hands
+    // the game to the player who has been in it longest (the lowest id)
+    room.clients.delete(ws.id);
+    if (room.clients.size === 0) {
       rooms.delete(ws.room);
-      bcast(room, '{"t":"host_left"}', ws);
       return;
     }
-    room.clients.delete(ws.id);
     bcast(room, `{"t":"left","id":${ws.id}}`);
+    if (ws.id === room.host) {
+      room.host = Math.min(...room.clients.keys());
+      room.bots = 0;  // the old host's bots ran on its machine
+      bcast(room, `{"t":"host","id":${room.host}}`);
+    }
     bcast(room, roster(room));
   });
 });
