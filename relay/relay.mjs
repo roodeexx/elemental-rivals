@@ -19,6 +19,14 @@ function bcast(room, text, exceptWs) {
 function roster(room) {
   return JSON.stringify({ t: "roster", ids: [...room.clients.keys()] });
 }
+// A public room's server number (#1, #2, ...): the smallest one free, so friends can say
+// "join server #1" (the user's ask); a number comes free again when its room closes.
+function freeNum() {
+  const used = new Set([...rooms.values()].map((r) => r.num));
+  let n = 1;
+  while (used.has(n)) n++;
+  return n;
+}
 // public: listed for Quick Play. quick: tells the new host to start at once (with bots).
 function create(ws, isPublic) {
   let code;
@@ -27,8 +35,8 @@ function create(ws, isPublic) {
   } while (rooms.has(code));
   ws.room = code;
   ws.id = 1;
-  rooms.set(code, { clients: new Map([[1, ws]]), next: 2, started: false, public: isPublic, host: 1 });
-  send(ws, { t: "room", code, id: 1, quick: isPublic, host: 1 });
+  rooms.set(code, { clients: new Map([[1, ws]]), next: 2, started: false, public: isPublic, host: 1, num: isPublic ? freeNum() : 0 });
+  send(ws, { t: "room", code, id: 1, quick: isPublic, host: 1, num: rooms.get(code).num });
   send(ws, { t: "roster", ids: [1] });
 }
 // Joining a running match is allowed (live sessions): "started" tells the newcomer to go
@@ -37,7 +45,7 @@ function join(ws, code, room) {
   ws.room = code;
   ws.id = room.next++;
   room.clients.set(ws.id, ws);
-  send(ws, { t: "room", code, id: ws.id, started: room.started, host: room.host });
+  send(ws, { t: "room", code, id: ws.id, started: room.started, host: room.host, num: room.num });
   bcast(room, roster(room));
 }
 
@@ -114,15 +122,31 @@ const http = createServer((req, res) => {
     // the lobby's "live now" line: how many public games run and how many play in them (counts only)
     const live = [...rooms.values()].filter((r) => r.public);
     res.writeHead(200, { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" });
+    // list: each public server by its number, to pick one in the lobby (counts and its code only)
+    const list = [...rooms.entries()].filter(([, r]) => r.public).sort((a, b) => a[1].num - b[1].num)
+      .map(([code, r]) => ({ num: r.num, code, players: r.clients.size, bots: r.bots || 0, started: r.started, full: r.clients.size >= MAX_PLAYERS }));
     return res.end(JSON.stringify({ games: live.length, players: live.reduce((n, r) => n + r.clients.size, 0),
       bots: live.reduce((n, r) => n + (r.bots || 0), 0),
-      open: live.filter((r) => r.clients.size < MAX_PLAYERS).length }));
+      open: live.filter((r) => r.clients.size < MAX_PLAYERS).length, list }));
   }
   res.writeHead(200, CORS);
   res.end("Elemental Rivals relay is running.");
 }).listen(PORT);
 
-new WebSocketServer({ server: http }).on("connection", (ws) => {
+const wss = new WebSocketServer({ server: http });
+// Heartbeat (the user's catch: games listed with players who were long gone): every 15 s each
+// connection must answer a ping (browsers answer by themselves, even from a background tab);
+// one that doesn't is dropped, which takes its player out of the room - and an empty room closes.
+setInterval(() => {
+  for (const ws of wss.clients) {
+    if (ws.alive === false) { ws.terminate(); continue; }
+    ws.alive = false;
+    ws.ping();
+  }
+}, 15000).unref();
+wss.on("connection", (ws) => {
+  ws.alive = true;
+  ws.on("pong", () => { ws.alive = true; });
   ws.on("message", (raw, isBinary) => {
     if (isBinary) return;
     raw = raw.toString();
