@@ -147,6 +147,8 @@ new WebSocketServer({ server: http }).on("connection", (ws) => {
       if (!room) return send(ws, { t: "err", msg: "no such room" });
       if (room.clients.size >= MAX_PLAYERS) return send(ws, { t: "err", msg: "room is full" });
       join(ws, code, room);
+    } else if (m.t === "new") {
+      create(ws, true);  // "New game": always my own public game (with my bots), others can drop in
     } else if (m.t === "quick") {
       // Quick Play (the user's ask): the fullest public game with a free spot, running or
       // not; none open -> a new public game, this player its host (it starts with bots).
