@@ -126,6 +126,10 @@ new WebSocketServer({ server: http }).on("connection", (ws) => {
   ws.on("message", (raw, isBinary) => {
     if (isBinary) return;
     raw = raw.toString();
+    if (raw.startsWith('{"t":"ping"')) {  // the game's ping: answered at once, never broadcast
+      if (ws.readyState === 1) ws.send(raw.replace('"ping"', '"pong"'));
+      return;
+    }
     if (ws.room) {
       const room = rooms.get(ws.room);
       if (!room) return;
