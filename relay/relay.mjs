@@ -1,5 +1,5 @@
 // Room relay for up to 10 players: node relay.mjs (locally, and on Render).
-// Client -> {"t":"create"} | {"t":"join","code":"ABCD"} | anything else = game message.
+// Client -> {"t":"create"} | {"t":"join","code":"ABCD"} | {"t":"quick"} | anything else = game message.
 // Game messages are broadcast to the rest of the room wrapped as {"f":<senderId>,"m":<msg>}.
 import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
@@ -18,6 +18,27 @@ function bcast(room, text, exceptWs) {
 }
 function roster(room) {
   return JSON.stringify({ t: "roster", ids: [...room.clients.keys()] });
+}
+// public: listed for Quick Play. quick: tells the new host to start at once (with bots).
+function create(ws, isPublic) {
+  let code;
+  do {
+    code = Array.from({ length: 4 }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ"[(Math.random() * 24) | 0]).join("");
+  } while (rooms.has(code));
+  ws.room = code;
+  ws.id = 1;
+  rooms.set(code, { clients: new Map([[1, ws]]), next: 2, started: false, public: isPublic });
+  send(ws, { t: "room", code, id: 1, quick: isPublic });
+  send(ws, { t: "roster", ids: [1] });
+}
+// Joining a running match is allowed (live sessions): "started" tells the newcomer to go
+// straight into the game, where they wait for the round to end.
+function join(ws, code, room) {
+  ws.room = code;
+  ws.id = room.next++;
+  room.clients.set(ws.id, ws);
+  send(ws, { t: "room", code, id: ws.id, started: room.started });
+  bcast(room, roster(room));
 }
 
 // Reports (the user's ask): POST /report with a game's report - a part every 5 min of play,
@@ -108,26 +129,22 @@ new WebSocketServer({ server: http }).on("connection", (ws) => {
     let m;
     try { m = JSON.parse(raw); } catch { return; }
     if (m.t === "create") {
-      let code;
-      do {
-        code = Array.from({ length: 4 }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ"[(Math.random() * 24) | 0]).join("");
-      } while (rooms.has(code));
-      ws.room = code;
-      ws.id = 1;
-      rooms.set(code, { clients: new Map([[1, ws]]), next: 2, started: false });
-      send(ws, { t: "room", code, id: 1 });
-      send(ws, { t: "roster", ids: [1] });
+      create(ws, false);
     } else if (m.t === "join") {
       const code = String(m.code || "").toUpperCase();
       const room = rooms.get(code);
       if (!room) return send(ws, { t: "err", msg: "no such room" });
-      if (room.started) return send(ws, { t: "err", msg: "match already started" });
       if (room.clients.size >= MAX_PLAYERS) return send(ws, { t: "err", msg: "room is full" });
-      ws.room = code;
-      ws.id = room.next++;
-      room.clients.set(ws.id, ws);
-      send(ws, { t: "room", code, id: ws.id });
-      bcast(room, roster(room));
+      join(ws, code, room);
+    } else if (m.t === "quick") {
+      // Quick Play (the user's ask): the fullest public game with a free spot, running or
+      // not; none open -> a new public game, this player its host (it starts with bots).
+      let best = null;
+      for (const [code, room] of rooms) {
+        if (room.public && room.clients.size < MAX_PLAYERS && (!best || room.clients.size > best[1].clients.size)) best = [code, room];
+      }
+      if (best) join(ws, best[0], best[1]);
+      else create(ws, true);
     }
   });
   ws.on("close", () => {
