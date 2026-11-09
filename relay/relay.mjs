@@ -20,20 +20,26 @@ function roster(room) {
   return JSON.stringify({ t: "roster", ids: [...room.clients.keys()] });
 }
 
-// Crash reports (the user's ask): POST /report with a game's crash/freeze report (JSON, sent
+// Reports (the user's ask): POST /report with a game's report - a part every 5 min of play,
+// at a match's end, and the last part / crash report at the next start (JSON, sent
 // as text/plain so browsers skip the CORS preflight). Saved as a file in a PRIVATE GitHub repo
 // (REPORTS_REPO, written with GITHUB_TOKEN, set in Render's dashboard - never in this code), or,
 // for local tests, into REPORTS_DIR. Nothing else is kept: no IP, no headers, nothing typed.
 const REPORTS_REPO = process.env.REPORTS_REPO || "roodeexx/elemental-rivals-reports";
 const REPORTS_DIR = process.env.REPORTS_DIR || "";
-const MAX_REPORT = 600 * 1024;   // bytes; a full report is well under this
-const PER_HOUR = 30;             // reports filed per hour per internet connection (friends at one home share one); stops floods
+const MAX_REPORT = 2 * 1024 * 1024;  // bytes; a 5-minute part is ~0.5 MB
+const PER_HOUR = 60;             // reports filed per hour per internet connection (a part every 5 min for a few friends at one home); stops floods
 const sent = new Map();          // sender -> [times], in memory only, cleared hourly
 setInterval(() => sent.clear(), 3600 * 1000).unref();
 
-async function storeReport(text) {
+async function storeReport(text, report) {
   const now = new Date();
-  const name = `reports/${now.toISOString().slice(0, 10)}/${now.toISOString().slice(11, 19).replaceAll(":", "")}-${Math.random().toString(36).slice(2, 8)}.json`;
+  const time = now.toISOString().slice(11, 19).replaceAll(":", "");
+  // one session's parts sit side by side: <session>-part<N>-<time>.json (ids checked, never trusted as paths)
+  const sid = typeof report.session === "string" && /^[a-z0-9]{8}$/.test(report.session) ? report.session : "";
+  const n = Number.isInteger(report.part) && report.part > 0 && report.part < 1000 ? report.part : 0;
+  const file = sid ? `${sid}-part${n}-${time}` : `${time}-${Math.random().toString(36).slice(2, 8)}`;
+  const name = `reports/${now.toISOString().slice(0, 10)}/${file}.json`;
   if (REPORTS_DIR) {
     const { mkdir, writeFile } = await import("node:fs/promises");
     const path = `${REPORTS_DIR}/${name}`;
@@ -68,7 +74,7 @@ function handleReport(req, res) {
     try { report = JSON.parse(text); } catch { res.writeHead(400, CORS); return res.end("not json"); }
     if (!report || typeof report !== "object" || !report.how_it_ended) { res.writeHead(400, CORS); return res.end("not a report"); }
     try {
-      const ok = await storeReport(JSON.stringify(report, null, 1));
+      const ok = await storeReport(JSON.stringify(report, null, 1), report);
       if (ok) { times.push(Date.now()); sent.set(who, times); }  // only filed reports count toward the limit
       res.writeHead(ok ? 201 : 503, CORS);
       res.end(ok ? "saved" : "reports are not set up on this relay");
