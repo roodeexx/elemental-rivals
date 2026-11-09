@@ -115,6 +115,7 @@ const http = createServer((req, res) => {
     const live = [...rooms.values()].filter((r) => r.public);
     res.writeHead(200, { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" });
     return res.end(JSON.stringify({ games: live.length, players: live.reduce((n, r) => n + r.clients.size, 0),
+      bots: live.reduce((n, r) => n + (r.bots || 0), 0),
       open: live.filter((r) => r.clients.size < MAX_PLAYERS).length }));
   }
   res.writeHead(200, CORS);
@@ -130,6 +131,9 @@ new WebSocketServer({ server: http }).on("connection", (ws) => {
       if (!room) return;
       // shortcut: detects match start by substring, not JSON parse; fine while only the host sends "begin"
       if (raw.includes('"begin"')) room.started = true;
+      if (ws.id === 1 && raw.includes('"meta"')) {  // the host's bot count, for the lobby's "live games" line
+        try { const m = JSON.parse(raw); if (m.t === "meta") room.bots = Math.max(0, Math.min(8, m.bots | 0)); } catch {}
+      }
       bcast(room, `{"f":${ws.id},"m":${raw}}`, ws);
       return;
     }
