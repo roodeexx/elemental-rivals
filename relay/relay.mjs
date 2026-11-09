@@ -150,14 +150,14 @@ new WebSocketServer({ server: http }).on("connection", (ws) => {
     } else if (m.t === "new") {
       create(ws, true);  // "New game": always my own public game (with my bots), others can drop in
     } else if (m.t === "quick") {
-      // Quick Play (the user's ask): the fullest public game with a free spot, running or
-      // not; none open -> a new public game, this player its host (it starts with bots).
+      // Quick Play (the user's ask): join the fullest public game with a free spot - only
+      // join; with none running it says so (New game starts one)
       let best = null;
       for (const [code, room] of rooms) {
         if (room.public && room.clients.size < MAX_PLAYERS && (!best || room.clients.size > best[1].clients.size)) best = [code, room];
       }
       if (best) join(ws, best[0], best[1]);
-      else create(ws, true);
+      else send(ws, { t: "err", msg: "no live games right now" });
     }
   });
   ws.on("close", () => {
