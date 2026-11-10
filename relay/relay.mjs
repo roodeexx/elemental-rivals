@@ -29,14 +29,16 @@ function freeNum() {
 }
 // public: listed for Quick Play and in the server list. quick: tells the new host to start at
 // once (with bots); a public room with friends waits for its host's Start instead.
-function create(ws, isPublic, quick = isPublic) {
+// v: the game's version (the user's ask: the classic build 234 stays playable beside the new
+// game). Build 234 sends none, so it is 1; the new game sends 2. Rooms never mix versions.
+function create(ws, isPublic, quick = isPublic, v = 1) {
   let code;
   do {
     code = Array.from({ length: 4 }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ"[(Math.random() * 24) | 0]).join("");
   } while (rooms.has(code));
   ws.room = code;
   ws.id = 1;
-  rooms.set(code, { clients: new Map([[1, ws]]), next: 2, started: false, public: isPublic, host: 1, num: isPublic ? freeNum() : 0 });
+  rooms.set(code, { clients: new Map([[1, ws]]), next: 2, started: false, public: isPublic, host: 1, num: isPublic ? freeNum() : 0, v });
   send(ws, { t: "room", code, id: 1, quick, host: 1, num: rooms.get(code).num });
   send(ws, { t: "roster", ids: [1] });
 }
@@ -119,12 +121,13 @@ const CORS = { "Content-Type": "text/plain", "Access-Control-Allow-Origin": "*" 
 // A plain visit answers too: Render's health check, and the game page waking a sleeping server.
 const http = createServer((req, res) => {
   if (req.method === "POST" && req.url === "/report") return handleReport(req, res);
-  if (req.url === "/rooms") {
+  if (req.url === "/rooms" || req.url.startsWith("/rooms?")) {
     // the lobby's "live now" line: how many public games run and how many play in them (counts only)
-    const live = [...rooms.values()].filter((r) => r.public);
+    const v = Number(new URL(req.url, "http://x").searchParams.get("v")) || 1;  // each version's lobby lists its own games
+    const live = [...rooms.values()].filter((r) => r.public && r.v === v);
     res.writeHead(200, { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" });
     // list: each public server by its number, to pick one in the lobby (counts and its code only)
-    const list = [...rooms.entries()].filter(([, r]) => r.public).sort((a, b) => a[1].num - b[1].num)
+    const list = [...rooms.entries()].filter(([, r]) => r.public && r.v === v).sort((a, b) => a[1].num - b[1].num)
       .map(([code, r]) => ({ num: r.num, code, players: r.clients.size, bots: r.bots || 0, started: r.started, full: r.clients.size >= MAX_PLAYERS }));
     return res.end(JSON.stringify({ games: live.length, players: live.reduce((n, r) => n + r.clients.size, 0),
       bots: live.reduce((n, r) => n + (r.bots || 0), 0),
@@ -178,22 +181,24 @@ wss.on("connection", (ws) => {
     }
     let m;
     try { m = JSON.parse(raw); } catch { return; }
+    const v = Number(m.v) || 1;
     if (m.t === "create") {
-      create(ws, m.pub === true, false);  // a room with friends: private (code only) or public (listed, waiting)
+      create(ws, m.pub === true, false, v);  // a room with friends: private (code only) or public (listed, waiting)
     } else if (m.t === "join") {
       const code = String(m.code || "").toUpperCase();
       const room = rooms.get(code);
       if (!room) return send(ws, { t: "err", msg: "no such room" });
       if (room.clients.size >= MAX_PLAYERS) return send(ws, { t: "err", msg: "room is full" });
+      if (room.v !== v) return send(ws, { t: "err", msg: room.v === 1 ? "that room plays the classic version" : "that room plays the new version" });
       join(ws, code, room);
     } else if (m.t === "new") {
-      create(ws, true);  // "New game": always my own public game (with my bots), others can drop in
+      create(ws, true, true, v);  // "New game": always my own public game (with my bots), others can drop in
     } else if (m.t === "quick") {
       // Quick Play (the user's ask): join the fullest public game with a free spot - only
       // join; with none running it says so (New game starts one)
       let best = null;
       for (const [code, room] of rooms) {
-        if (room.public && room.clients.size < MAX_PLAYERS && (!best || room.clients.size > best[1].clients.size)) best = [code, room];
+        if (room.public && room.v === v && room.clients.size < MAX_PLAYERS && (!best || room.clients.size > best[1].clients.size)) best = [code, room];
       }
       if (best) join(ws, best[0], best[1]);
       else send(ws, { t: "err", msg: "no live games right now" });
