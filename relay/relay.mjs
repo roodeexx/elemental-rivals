@@ -27,8 +27,9 @@ function freeNum() {
   while (used.has(n)) n++;
   return n;
 }
-// public: listed for Quick Play. quick: tells the new host to start at once (with bots).
-function create(ws, isPublic) {
+// public: listed for Quick Play and in the server list. quick: tells the new host to start at
+// once (with bots); a public room with friends waits for its host's Start instead.
+function create(ws, isPublic, quick = isPublic) {
   let code;
   do {
     code = Array.from({ length: 4 }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ"[(Math.random() * 24) | 0]).join("");
@@ -36,7 +37,7 @@ function create(ws, isPublic) {
   ws.room = code;
   ws.id = 1;
   rooms.set(code, { clients: new Map([[1, ws]]), next: 2, started: false, public: isPublic, host: 1, num: isPublic ? freeNum() : 0 });
-  send(ws, { t: "room", code, id: 1, quick: isPublic, host: 1, num: rooms.get(code).num });
+  send(ws, { t: "room", code, id: 1, quick, host: 1, num: rooms.get(code).num });
   send(ws, { t: "roster", ids: [1] });
 }
 // Joining a running match is allowed (live sessions): "started" tells the newcomer to go
@@ -168,7 +169,7 @@ wss.on("connection", (ws) => {
     let m;
     try { m = JSON.parse(raw); } catch { return; }
     if (m.t === "create") {
-      create(ws, false);
+      create(ws, m.pub === true, false);  // a room with friends: private (code only) or public (listed, waiting)
     } else if (m.t === "join") {
       const code = String(m.code || "").toUpperCase();
       const room = rooms.get(code);
