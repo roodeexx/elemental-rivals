@@ -158,6 +158,16 @@ wss.on("connection", (ws) => {
     if (ws.room) {
       const room = rooms.get(ws.room);
       if (!room) return;
+      // the host's tab went hidden (minimized, alt-tabbed): its game loop stops, so the round's
+      // clock would freeze for everyone (the user's catch) - hand the game to another player
+      if (raw.startsWith('{"t":"away"')) {
+        if (ws.id === room.host && room.clients.size > 1) {
+          room.host = Math.min(...[...room.clients.keys()].filter((id) => id !== ws.id));
+          room.bots = 0;  // the old host's bots ran on its machine
+          bcast(room, `{"t":"host","id":${room.host}}`);
+        }
+        return;
+      }
       // shortcut: detects match start by substring, not JSON parse; fine while only the host sends "begin"
       if (raw.includes('"begin"')) room.started = true;
       if (ws.id === room.host && raw.includes('"meta"')) {  // the host's bot count, for the lobby's "live games" line
